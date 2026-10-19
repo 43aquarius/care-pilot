@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getCurrentUser } from '@/lib/auth'
-import { getZAI, LAB_SYSTEM_PROMPT } from '@/lib/ai'
+import { chatComplete, LAB_SYSTEM_PROMPT } from '@/lib/ai'
 
 export const maxDuration = 120
 
@@ -32,18 +32,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Lab results are too long (max 6000 characters).' }, { status: 400 })
     }
 
-    const zai = await getZAI()
-    const completion = await zai.chat.completions.create({
-      messages: [
-        { role: 'system', content: LAB_SYSTEM_PROMPT },
-        {
-          role: 'user',
-          content: `Please explain these lab results in plain language:\n\n${rawInput}`,
-        },
-      ],
-      thinking: { type: 'disabled' },
-    })
-    const explanation = completion.choices[0]?.message?.content
+    const explanation = await chatComplete([
+      { role: 'system', content: LAB_SYSTEM_PROMPT },
+      {
+        role: 'user',
+        content: `Please explain these lab results in plain language:\n\n${rawInput}`,
+      },
+    ])
     if (!explanation) {
       return NextResponse.json({ error: 'The explainer returned an empty response. Please try again.' }, { status: 502 })
     }

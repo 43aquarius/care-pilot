@@ -1,7 +1,8 @@
 import { NextRequest } from 'next/server'
 import { db } from '@/lib/db'
 import { getCurrentUser } from '@/lib/auth'
-import { getZAI, TRIAGE_SYSTEM_PROMPT } from '@/lib/ai'
+import { chatTextStream, TRIAGE_SYSTEM_PROMPT } from '@/lib/ai'
+import type { SimpleMessage } from '@/lib/ai'
 
 export const maxDuration = 120
 
@@ -26,7 +27,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Sanitize conversation: keep last 12 turns, enforce roles/content
-    const messages: { role: 'user' | 'assistant' | 'system'; content: string }[] = [
+    const messages: SimpleMessage[] = [
       { role: 'system', content: TRIAGE_SYSTEM_PROMPT },
     ]
     for (const m of history.slice(-12)) {
@@ -41,73 +42,36 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    const zai = await getZAI()
-    const raw = (await zai.chat.completions.create({
-      messages,
-      stream: true,
-      thinking: { type: 'disabled' },
-    })) as unknown as ReadableStream<Uint8Array>
+    const stream = await chatTextStream(messages)
 
-    const encoder = new TextEncoder()
-    const decoder = new TextDecoder()
-
-    let fullText = ''
-    let sseBuffer = ''
-
-    const stream = new ReadableStream<Uint8Array>({
-      async start(controller) {
-        const reader = raw.getReader()
-        try {
-          for (;;) {
-            const { done, value } = await reader.read()
-            if (done) break
-            sseBuffer += decoder.decode(value, { stream: true })
-            const lines = sseBuffer.split('\n')
-            sseBuffer = lines.pop() ?? ''
-            for (const line of lines) {
-              const trimmed = line.trim()
-              if (!trimmed.startsWith('data:')) continue
-              const payload = trimmed.slice(5).trim()
-              if (!payload || payload === '[DONE]') continue
-              try {
-                const json = JSON.parse(payload)
-                const delta =
-                  json?.choices?.[0]?.delta?.content ??
-                  json?.choices?.[0]?.message?.content ??
-                  ''
-                if (delta) {
-                  fullText += delta
-                  controller.enqueue(encoder.encode(delta))
-                }
-              } catch {
-                // incomplete JSON frame — ignore
-              }
-            }
-          }
-        } finally {
-          reader.releaseLock()
+    // Persist the triage session once complete (tee a copy of the stream)
+    const [live, persist] = stream.tee()
+    void (async () => {
+      try {
+        const reader = persist.getReader()
+        const decoder = new TextDecoder()
+        let fullText = ''
+        for (;;) {
+          const { done, value } = await reader.read()
+          if (done) break
+          fullText += decoder.decode(value, { stream: true })
         }
+        const firstUser = history.find((m: { role: string }) => m.role === 'user')
+        const match = fullText.match(URGENCY_RE)
+        await db.triageSession.create({
+          data: {
+            userId: user.id,
+            symptoms: String(firstUser?.content ?? '').slice(0, 2000),
+            response: fullText.slice(0, 20000),
+            urgency: match ? match[1] : 'SEE_DOCTOR',
+          },
+        })
+      } catch (e) {
+        console.error('[triage save]', e)
+      }
+    })()
 
-        // Persist the triage session once complete
-        try {
-          const firstUser = history.find((m: { role: string }) => m.role === 'user')
-          const match = fullText.match(URGENCY_RE)
-          await db.triageSession.create({
-            data: {
-              userId: user.id,
-              symptoms: String(firstUser?.content ?? '').slice(0, 2000),
-              response: fullText.slice(0, 20000),
-              urgency: match ? match[1] : 'SEE_DOCTOR',
-            },
-          })
-        } catch (e) {
-          console.error('[triage save]', e)
-        }
-        controller.close()
-      },
-    })
-
-    return new Response(stream, {
+    return new Response(live, {
       headers: {
         'Content-Type': 'text/plain; charset=utf-8',
         'Cache-Control': 'no-cache, no-transform',

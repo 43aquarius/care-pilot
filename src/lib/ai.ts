@@ -16,6 +16,137 @@ export interface SimpleMessage {
   content: string
 }
 
+/* ------------------------------------------------------------------ */
+/* Portable AI layer                                                   */
+/* Works in two modes:                                                 */
+/*  1. OpenAI-compatible endpoint (env: AI_BASE_URL + AI_API_KEY)      */
+/*     — used when deployed (Cloudflare Pages, Vercel, Docker, ...)    */
+/*  2. z-ai-web-dev-sdk (this sandbox) — automatic fallback            */
+/* ------------------------------------------------------------------ */
+
+export interface OpenAICompatConfig {
+  baseUrl: string
+  apiKey: string
+  model: string
+}
+
+export function getOpenAICompatConfig(): OpenAICompatConfig | null {
+  const baseUrl = (process.env.AI_BASE_URL || process.env.OPENAI_BASE_URL || '').replace(/\/+$/, '')
+  const apiKey = process.env.AI_API_KEY || process.env.OPENAI_API_KEY || ''
+  const model = process.env.AI_MODEL || process.env.OPENAI_MODEL || 'glm-4.6'
+  if (!baseUrl || !apiKey) return null
+  return { baseUrl, apiKey, model }
+}
+
+/** Non-streaming chat completion. Returns the assistant message text. */
+export async function chatComplete(messages: SimpleMessage[]): Promise<string> {
+  const cfg = getOpenAICompatConfig()
+  if (cfg) {
+    const res = await fetch(`${cfg.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${cfg.apiKey}`,
+      },
+      body: JSON.stringify({ model: cfg.model, messages, stream: false }),
+    })
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '')
+      throw new Error(`AI provider error ${res.status}: ${detail.slice(0, 300)}`)
+    }
+    const json = await res.json()
+    const text = json?.choices?.[0]?.message?.content
+    if (typeof text !== 'string' || !text) throw new Error('AI provider returned an empty response')
+    return text
+  }
+  const zai = await getZAI()
+  const completion = (await zai.chat.completions.create({
+    messages,
+    thinking: { type: 'disabled' },
+  })) as { choices?: { message?: { content?: string } }[] }
+  return completion.choices?.[0]?.message?.content ?? ''
+}
+
+/**
+ * Streaming chat completion. Returns a ReadableStream of UTF-8 text chunks
+ * (plain text deltas, SSE framing already removed) regardless of provider.
+ */
+export async function chatTextStream(messages: SimpleMessage[]): Promise<ReadableStream<Uint8Array>> {
+  const cfg = getOpenAICompatConfig()
+  if (cfg) {
+    const res = await fetch(`${cfg.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${cfg.apiKey}`,
+      },
+      body: JSON.stringify({ model: cfg.model, messages, stream: true }),
+    })
+    if (!res.ok || !res.body) {
+      const detail = await res.text().catch(() => '')
+      throw new Error(`AI provider error ${res.status}: ${detail.slice(0, 300)}`)
+    }
+    const decoder = new TextDecoder()
+    const encoder = new TextEncoder()
+    let sseBuffer = ''
+    return res.body.pipeThrough(
+      new TransformStream<Uint8Array, Uint8Array>({
+        transform(chunk, controller) {
+          sseBuffer += decoder.decode(chunk, { stream: true })
+          const lines = sseBuffer.split('\n')
+          sseBuffer = lines.pop() ?? ''
+          for (const line of lines) {
+            const trimmed = line.trim()
+            if (!trimmed.startsWith('data:')) continue
+            const payload = trimmed.slice(5).trim()
+            if (!payload || payload === '[DONE]') continue
+            try {
+              const json = JSON.parse(payload)
+              const delta = json?.choices?.[0]?.delta?.content ?? ''
+              if (delta) controller.enqueue(encoder.encode(delta))
+            } catch {
+              // incomplete JSON frame — ignore
+            }
+          }
+        },
+      })
+    )
+  }
+  const zai = await getZAI()
+  const raw = (await zai.chat.completions.create({
+    messages,
+    stream: true,
+    thinking: { type: 'disabled' },
+  })) as unknown as ReadableStream<Uint8Array>
+
+  const encoder = new TextEncoder()
+  const decoder = new TextDecoder()
+  let sseBuffer = ''
+  return raw.pipeThrough(
+    new TransformStream<Uint8Array, Uint8Array>({
+      transform(chunk, controller) {
+        sseBuffer += decoder.decode(chunk, { stream: true })
+        const lines = sseBuffer.split('\n')
+        sseBuffer = lines.pop() ?? ''
+        for (const line of lines) {
+          const trimmed = line.trim()
+          if (!trimmed.startsWith('data:')) continue
+          const payload = trimmed.slice(5).trim()
+          if (!payload || payload === '[DONE]') continue
+          try {
+            const json = JSON.parse(payload)
+            const delta =
+              json?.choices?.[0]?.delta?.content ?? json?.choices?.[0]?.message?.content ?? ''
+            if (delta) controller.enqueue(encoder.encode(delta))
+          } catch {
+            // incomplete JSON frame — ignore
+          }
+        }
+      },
+    })
+  )
+}
+
 export const TRIAGE_SYSTEM_PROMPT = `You are CarePilot's AI health navigator — a careful, warm, and responsible triage assistant built for a health-tech product. You help people understand symptoms and decide the appropriate level of care. You are NOT a doctor and never diagnose.
 
 ## Your process

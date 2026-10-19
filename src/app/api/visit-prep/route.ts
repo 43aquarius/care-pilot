@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getCurrentUser } from '@/lib/auth'
-import { getZAI, VISIT_PREP_SYSTEM_PROMPT } from '@/lib/ai'
+import { chatComplete, VISIT_PREP_SYSTEM_PROMPT } from '@/lib/ai'
 
 export const maxDuration = 120
 
@@ -65,15 +65,10 @@ ${medList || 'No medications recorded.'}
 
 Today's date: ${new Date().toISOString().slice(0, 10)}`
 
-    const zai = await getZAI()
-    const completion = await zai.chat.completions.create({
-      messages: [
-        { role: 'system', content: VISIT_PREP_SYSTEM_PROMPT },
-        { role: 'user', content: userContent },
-      ],
-      thinking: { type: 'disabled' },
-    })
-    const summary = completion.choices[0]?.message?.content
+    const summary = await chatComplete([
+      { role: 'system', content: VISIT_PREP_SYSTEM_PROMPT },
+      { role: 'user', content: userContent },
+    ])
     if (!summary) {
       return NextResponse.json({ error: 'The assistant returned an empty summary. Please try again.' }, { status: 502 })
     }
