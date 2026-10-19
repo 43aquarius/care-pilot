@@ -9,8 +9,9 @@ export async function POST(req: NextRequest) {
     // One-click judge demo login
     if (demo) {
       const demoUser = await ensureDemoUser()
-      await createSession(demoUser.id)
+      const token = await createSession(demoUser.id)
       return NextResponse.json({
+        token,
         user: { id: demoUser.id, email: demoUser.email, name: demoUser.name, isDemo: true },
       })
     }
@@ -32,8 +33,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Incorrect password. Please try again.' }, { status: 401 })
     }
 
-    await createSession(user.id)
+    const loginToken = await createSession(user.id)
     return NextResponse.json({
+      token: loginToken,
       user: { id: user.id, email: user.email, name: user.name, isDemo: user.isDemo },
     })
   } catch (e) {

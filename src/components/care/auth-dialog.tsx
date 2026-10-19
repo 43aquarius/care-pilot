@@ -15,6 +15,7 @@ import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Separator } from '@/components/ui/separator'
 import type { AuthUser } from '@/lib/types'
+import { authFetch, saveToken } from '@/lib/client-auth'
 
 type Mode = 'signin' | 'signup'
 
@@ -41,7 +42,7 @@ export function AuthDialog({
     setError(null)
     setBusy('form')
     try {
-      const res = await fetch(`/api/auth/${mode === 'signin' ? 'login' : 'register'}`, {
+      const res = await authFetch(`/api/auth/${mode === 'signin' ? 'login' : 'register'}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(
@@ -50,6 +51,7 @@ export function AuthDialog({
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Something went wrong.')
+      if (data.token) saveToken(data.token)
       onAuthed(data.user)
       onOpenChange(false)
     } catch (err) {
@@ -63,13 +65,14 @@ export function AuthDialog({
     setError(null)
     setBusy('demo')
     try {
-      const res = await fetch('/api/auth/login', {
+      const res = await authFetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ demo: true }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Demo login failed.')
+      if (data.token) saveToken(data.token)
       onAuthed(data.user)
       onOpenChange(false)
     } catch (err) {

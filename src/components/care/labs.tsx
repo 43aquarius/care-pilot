@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/dialog'
 import { Markdown } from '@/components/care/markdown'
 import { fmtDate, type LabReport } from '@/lib/types'
+import { authFetch } from '@/lib/client-auth'
 
 const SAMPLE = `Glucose 108 mg/dL (fasting)
 HbA1c 6.1 %
@@ -35,7 +36,7 @@ export function Labs() {
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch('/api/labs')
+      const res = await authFetch('/api/labs')
       if (res.ok) {
         const data = await res.json()
         setReports(data.reports)
@@ -53,7 +54,7 @@ export function Labs() {
     setBusy(true)
     setResult(null)
     try {
-      const res = await fetch('/api/labs', {
+      const res = await authFetch('/api/labs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ rawInput: raw, title: title || undefined }),

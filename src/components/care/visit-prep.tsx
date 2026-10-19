@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge'
 import { Markdown } from '@/components/care/markdown'
 import { toast } from 'sonner'
 import { fmtDate, URGENCY_META, type TriageSession } from '@/lib/types'
+import { authFetch } from '@/lib/client-auth'
 
 export function VisitPrep() {
   const [concern, setConcern] = useState('')
@@ -23,7 +24,7 @@ export function VisitPrep() {
   const [copied, setCopied] = useState(false)
 
   useEffect(() => {
-    fetch('/api/triage/history')
+    authFetch('/api/triage/history')
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         if (d?.sessions) {
@@ -40,7 +41,7 @@ export function VisitPrep() {
     setBusy(true)
     setSummary(null)
     try {
-      const res = await fetch('/api/visit-prep', {
+      const res = await authFetch('/api/visit-prep', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ concern, details, triageSessionIds: selected }),

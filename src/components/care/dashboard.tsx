@@ -22,6 +22,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { authFetch } from '@/lib/client-auth'
 import {
   Dialog,
   DialogContent,
@@ -213,9 +214,9 @@ function Overview({ user, go }: { user: AuthUser; go: (t: Tab) => void }) {
   const load = useCallback(async () => {
     try {
       const [m, s, r] = await Promise.all([
-        fetch('/api/medications').then((x) => (x.ok ? x.json() : null)),
-        fetch('/api/triage/history').then((x) => (x.ok ? x.json() : null)),
-        fetch('/api/labs').then((x) => (x.ok ? x.json() : null)),
+        authFetch('/api/medications').then((x) => (x.ok ? x.json() : null)),
+        authFetch('/api/triage/history').then((x) => (x.ok ? x.json() : null)),
+        authFetch('/api/labs').then((x) => (x.ok ? x.json() : null)),
       ])
       if (m) setMeds(m)
       if (s) setSessions(s.sessions ?? [])

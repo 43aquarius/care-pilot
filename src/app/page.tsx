@@ -7,6 +7,7 @@ import { AuthDialog } from '@/components/care/auth-dialog'
 import { Dashboard } from '@/components/care/dashboard'
 import { useA11y } from '@/components/care/a11y'
 import type { AuthUser } from '@/lib/types'
+import { authFetch, saveToken, clearToken } from '@/lib/client-auth'
 
 export default function Page() {
   const [user, setUser] = useState<AuthUser | null>(null)
@@ -16,7 +17,7 @@ export default function Page() {
   const { a11y, setA11y } = useA11y()
 
   useEffect(() => {
-    fetch('/api/auth/me')
+    authFetch('/api/auth/me')
       .then((r) => r.json())
       .then((d) => {
         if (d.user) setUser(d.user)
@@ -26,7 +27,8 @@ export default function Page() {
   }, [])
 
   async function logout() {
-    await fetch('/api/auth/logout', { method: 'POST' }).catch(() => {})
+    await authFetch('/api/auth/logout', { method: 'POST' }).catch(() => {})
+    clearToken()
     setUser(null)
   }
 
@@ -52,13 +54,14 @@ export default function Page() {
         setA11y={setA11y}
         onDemo={async () => {
           try {
-            const res = await fetch('/api/auth/login', {
+            const res = await authFetch('/api/auth/login', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ demo: true }),
             })
             const data = await res.json()
             if (!res.ok) throw new Error(data.error)
+            if (data.token) saveToken(data.token)
             setUser(data.user)
           } catch {
             setAuthMode('signin')

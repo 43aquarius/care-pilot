@@ -1,5 +1,5 @@
 import { scryptSync, randomBytes, timingSafeEqual } from 'crypto'
-import { cookies } from 'next/headers'
+import { cookies, headers } from 'next/headers'
 import { db } from '@/lib/db'
 
 export const SESSION_COOKIE = 'cp_session'
@@ -26,7 +26,10 @@ export async function createSession(userId: string) {
   const cookieStore = await cookies()
   cookieStore.set(SESSION_COOKIE, token, {
     httpOnly: true,
-    sameSite: 'lax',
+    // 'none' (with Secure) keeps the session working when the app is viewed
+    // inside an embedded webview/iframe; a Bearer-token fallback covers the
+    // browsers that block cookies entirely.
+    sameSite: 'none',
     secure: true,
     expires: expiresAt,
     path: '/',
@@ -35,18 +38,25 @@ export async function createSession(userId: string) {
 }
 
 export async function destroySession() {
-  const cookieStore = await cookies()
-  const token = cookieStore.get(SESSION_COOKIE)?.value
-  if (token) {
-    await db.session.deleteMany({ where: { token } })
-    cookieStore.delete(SESSION_COOKIE)
+  // Delete by Bearer token (if present) and/or session cookie.
+  let bearerToken: string | null = null
+  try {
+    const h = await headers()
+    const auth = h.get('authorization')
+    if (auth?.toLowerCase().startsWith('bearer ')) bearerToken = auth.slice(7).trim() || null
+  } catch {
+    /* headers() unavailable in this context */
   }
+  const cookieStore = await cookies()
+  const cookieToken = cookieStore.get(SESSION_COOKIE)?.value
+  const tokens = [bearerToken, cookieToken].filter((t): t is string => !!t)
+  for (const t of tokens) {
+    await db.session.deleteMany({ where: { token: t } }).catch(() => {})
+  }
+  if (cookieToken) cookieStore.delete(SESSION_COOKIE)
 }
 
-export async function getCurrentUser() {
-  const cookieStore = await cookies()
-  const token = cookieStore.get(SESSION_COOKIE)?.value
-  if (!token) return null
+async function sessionUser(token: string) {
   const session = await db.session.findUnique({
     where: { token },
     include: { user: true },
@@ -57,6 +67,28 @@ export async function getCurrentUser() {
     return null
   }
   return session.user
+}
+
+export async function getCurrentUser() {
+  // 1) Bearer token — survives webviews/iframe contexts where cookies are blocked.
+  try {
+    const h = await headers()
+    const auth = h.get('authorization')
+    if (auth?.toLowerCase().startsWith('bearer ')) {
+      const token = auth.slice(7).trim()
+      if (token) {
+        const user = await sessionUser(token)
+        if (user) return user
+      }
+    }
+  } catch {
+    /* headers() unavailable in this context */
+  }
+  // 2) Session cookie fallback.
+  const cookieStore = await cookies()
+  const token = cookieStore.get(SESSION_COOKIE)?.value
+  if (!token) return null
+  return sessionUser(token)
 }
 
 export const DEMO_EMAIL = 'judge@carepilot.app'

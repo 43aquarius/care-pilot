@@ -28,8 +28,9 @@ export async function POST(req: NextRequest) {
         passwordHash: hashPassword(password),
       },
     })
-    await createSession(user.id)
+    const regToken = await createSession(user.id)
     return NextResponse.json({
+      token: regToken,
       user: { id: user.id, email: user.email, name: user.name, isDemo: user.isDemo },
     })
   } catch (e) {

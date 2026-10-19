@@ -46,6 +46,7 @@ import {
 } from '@/components/ui/select'
 import { toast } from 'sonner'
 import type { MedsResponse, Medication } from '@/lib/types'
+import { authFetch } from '@/lib/client-auth'
 
 const FREQ_LABEL: Record<string, string> = {
   once_daily: 'Once daily',
@@ -81,7 +82,7 @@ export function Medications() {
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch('/api/medications')
+      const res = await authFetch('/api/medications')
       if (res.ok) setData(await res.json())
     } finally {
       setLoading(false)
@@ -117,7 +118,7 @@ export function Medications() {
       return { ...d, todayLogs }
     })
     try {
-      const res = await fetch(`/api/medications/${medId}/take`, {
+      const res = await authFetch(`/api/medications/${medId}/take`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ time, action }),
@@ -371,7 +372,7 @@ export function Medications() {
               onClick={async () => {
                 if (!deleteTarget) return
                 try {
-                  const res = await fetch(`/api/medications/${deleteTarget.id}`, { method: 'DELETE' })
+                  const res = await authFetch(`/api/medications/${deleteTarget.id}`, { method: 'DELETE' })
                   if (!res.ok) throw new Error()
                   toast.success(`${deleteTarget.name} removed`)
                   load()
@@ -418,7 +419,7 @@ function AddMedDialog({
     setError(null)
     setBusy(true)
     try {
-      const res = await fetch('/api/medications', {
+      const res = await authFetch('/api/medications', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, dosage, frequency, times, notes }),

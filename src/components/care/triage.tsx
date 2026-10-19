@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Markdown } from '@/components/care/markdown'
 import { parseUrgency, stripUrgency, URGENCY_META, type Urgency } from '@/lib/types'
+import { authFetch } from '@/lib/client-auth'
 
 interface Msg {
   role: 'user' | 'assistant'
@@ -41,7 +42,7 @@ export function Triage() {
     setUrgency(null)
 
     try {
-      const res = await fetch('/api/triage', {
+      const res = await authFetch('/api/triage', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ history }),
