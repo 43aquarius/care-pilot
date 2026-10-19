@@ -1,0 +1,79 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String?
+  passwordHash String
+  isDemo       Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  sessions       Session[]
+  medications    Medication[]
+  triageSessions TriageSession[]
+  labReports     LabReport[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+model Medication {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  dosage    String
+  frequency String // once_daily | twice_daily | three_times_daily | as_needed
+  times     String // JSON array of "HH:MM"
+  notes     String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  logs MedLog[]
+}
+
+model MedLog {
+  id           String     @id @default(cuid())
+  medicationId String
+  medication   Medication @relation(fields: [medicationId], references: [id], onDelete: Cascade)
+  scheduledFor DateTime
+  takenAt      DateTime?
+  status       String // pending | taken | skipped
+  createdAt    DateTime  @default(now())
+
+  @@unique([medicationId, scheduledFor])
+}
+
+model TriageSession {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  symptoms  String
+  response  String
+  urgency   String // SELF_CARE | SEE_DOCTOR | URGENT_CARE | EMERGENCY
+  createdAt DateTime @default(now())
+}
+
+model LabReport {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title       String
+  rawInput    String
+  explanation String
+  createdAt   DateTime @default(now())
+}
